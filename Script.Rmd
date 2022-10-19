@@ -1,0 +1,86 @@
+---
+title: "玉山SPEI指數計算"
+output: html_notebook
+---
+
+說明:以玉山氣象站資料為主體，分析SPEI指數。由於資料需要到最新的日期，但是TCCIP只有到2020年，而ERA5的資料又是從1981年開始，因此為了數據一致性，以玉山氣象站資料來做分析。
+SPEI表現的是相對乾旱期。僅需降雨量，緯度、溫度以及潛在蒸散量即可計算。
+# Step 0. package loading
+```{r}
+library(data.table)
+library(SPEI)
+library(ggplot2)
+library(readxl)
+library(ggrepel)
+```
+# Step 1. ERA5資料載入並計算SPEI
+```{r}
+wd_name <- list.files("ERA5_monthly_10km/",full.names = TRUE)
+wt <- lapply(wd_name,function(x){
+  dt <- fread(x)
+  Sys.setlocale("LC_TIME", "English")
+  colnames(dt) <- c("date","PE","temp","prep")
+  dt[,date:=as.Date(date,format="%B %d, %Y")]
+  dt[,wb:=prep-PE][,set:=sub("ERA5_monthly_10km/","",x)]
+  dt[,spei_6:=as.data.table(spei(wb,6)$fitted)][
+    ,spei_12:=as.data.table((spei(wb,12)$fitted))]
+  return(dt)
+})
+alwt <- rbindlist(wt)
+m_wt <- alwt[,.(spei_6=mean(spei_6),
+                spei_12=mean(spei_12),
+                month=month(date),
+                year=year(date)),by=.(date)]
+
+```
+# Step 2. 繪圖 
+```{r}
+
+ggplot(alwt,aes(x=date,y=spei_12,fill=spei_12))+
+    geom_col()+
+    facet_grid(set~.)+
+    scale_fill_gradient2(low = "red",
+                         mid = "white",
+                         high = "blue",
+                         midpoint = 0)+
+    scale_x_date(breaks="5 year",date_labels="%Y",
+                 limits =c(as.Date("1980-01-01"),
+                           as.Date("2023-01-01")))+
+    labs(x="Year",y="12-months SPEI",
+         fill='SPEI 12')
+
+```
+# Step 3. 計算潛在蒸散量與SPEI並載入火燒資訊
+```{r}
+## 載入火燒
+fire <- fread("history_fire.csv")
+fire[area>=0&area<10,clas:="A"][
+  area>=10&area<50,clas:="B"][
+  area>=50&area<100,clas:="C"][
+    area>=100&area<200,clas:="D"][
+      area>=200,clas:="E"]
+for(i in 1:5){
+  fire[clas==LETTERS[i],p_y:=2.1+0.1*i]
+}
+wt_p <- fire[m_wt,on=.(year,month)]
+
+ggplot(wt_p,aes(x=date,y=spei_12,fill=spei_12,label=clas))+
+    geom_col()+
+    scale_fill_gradient2(low = "red",
+                         mid = "white",
+                         high = "blue",
+                         midpoint = 0)+
+    scale_x_date(breaks="5 year",date_labels="%Y",
+                 limits =c(as.Date("1980-01-01"),
+                           as.Date("2023-01-01")))+
+    labs(x="Year",y="12-months SPEI",fill='SPEI 12')+
+     geom_text_repel(aes(y=p_y),size=3,color="darkred")
+ggsave("fire_occur_SPEI_12_1981_2022.jpeg",width=9,height = 5,dpi=600)
+    
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
